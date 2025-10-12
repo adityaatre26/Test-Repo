@@ -1,2 +1,52 @@
-Websocket test for task completion
-x12
+import asyncio
+import json
+import uuid
+
+import pytest
+import websockets
+
+SERVER_URI = "ws://localhost:8765"
+REQUEST_TIMEOUT = 10.0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("run_index", range(12))
+async def test_task_completion_via_websocket(run_index):
+    """
+    Connects to a WebSocket server, initiates a task, and awaits a
+    completion message. The test is parameterized to run multiple times.
+    """
+    task_id = f"task-{uuid.uuid4()}"
+    start_request = {
+        "action": "start_task",
+        "payload": {"task_id": task_id, "run_index": run_index},
+    }
+
+    try:
+        async with websockets.connect(SERVER_URI) as websocket:
+            # Send the request to initiate the task
+            await asyncio.wait_for(
+                websocket.send(json.dumps(start_request)), timeout=REQUEST_TIMEOUT
+            )
+
+            # Wait for the server's confirmation message
+            response_data = await asyncio.wait_for(
+                websocket.recv(), timeout=REQUEST_TIMEOUT
+            )
+            response = json.loads(response_data)
+
+            # Verify the response indicates successful task completion
+            assert response.get("status") == "complete"
+            assert response.get("task_id") == task_id
+
+    except (ConnectionRefusedError, websockets.exceptions.ConnectionClosed) as e:
+        pytest.fail(
+            f"Failed to connect to WebSocket server at {SERVER_URI}. "
+            f"Please ensure the server is running. Details: {e}"
+        )
+    except asyncio.TimeoutError:
+        pytest.fail(
+            f"WebSocket communication timed out after {REQUEST_TIMEOUT} seconds."
+        )
+    except (json.JSONDecodeError, KeyError) as e:
+        pytest.fail(f"Failed to parse or validate WebSocket message. Error: {e}")
