@@ -1,2 +1,36 @@
-Websocket test for task completion
-x11
+import asyncio
+import json
+import pytest
+import websockets
+
+WEBSOCKET_URI = "ws://localhost:8765"
+TEST_TIMEOUT = 15.0
+
+@pytest.mark.asyncio
+async def test_task_completion_via_websocket():
+    try:
+        async with asyncio.timeout(TEST_TIMEOUT):
+            async with websockets.connect(WEBSOCKET_URI) as websocket:
+                task_id = "task_abc_123"
+                start_message = {
+                    "action": "start_task",
+                    "params": {"id": task_id, "duration_seconds": 5}
+                }
+                await websocket.send(json.dumps(start_message))
+
+                async for message in websocket:
+                    try:
+                        response = json.loads(message)
+                        if (response.get("task_id") == task_id and
+                            response.get("status") == "completed"):
+                            assert "result" in response
+                            return
+                    except json.JSONDecodeError:
+                        pytest.fail(f"Received non-JSON message: {message}")
+
+                pytest.fail("Connection closed before receiving completion message.")
+
+    except TimeoutError:
+        pytest.fail(f"Test timed out after {TEST_TIMEOUT} seconds.")
+    except (websockets.exceptions.WebSocketException, ConnectionRefusedError) as e:
+        pytest.fail(f"WebSocket connection to {WEBSOCKET_URI} failed: {e}")
